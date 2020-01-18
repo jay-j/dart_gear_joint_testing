@@ -33,30 +33,6 @@ public:
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void setRotorGeometry(const BodyNodePtr& bn){
-    // Create a CylinderShape to be used for both visualization and collision checking
-    std::shared_ptr<CylinderShape> cyl(new CylinderShape(2.0*link_width, link_width));
-
-    
-    // Create a shape node for visualization and collision checking
-    auto shapeNode  
-      = bn->createShapeNodeWith<VisualAspect, CollisionAspect, DynamicsAspect>(cyl);
-          shapeNode->getVisualAspect()->setColor(dart::Color::Red());
-    
-    // Set the location of the shape node
-    Eigen::Isometry3d cyl_tf(Eigen::Isometry3d::Identity());
-    Eigen::Vector3d center = Eigen::Vector3d(0, 0, link_length / 2.0);
-    cyl_tf.translation() = center;
-    cyl_tf.linear() = dart::math::eulerXYZToMatrix(
-		    Eigen::Vector3d(90.0 * M_PI / 180.0, 0.0, 0.0));
-    shapeNode->setRelativeTransform(cyl_tf);
-
-    // Move the center of mass to the center of the object
-    bn->setLocalCOM(center);
-}
-
-
 void setLinkGeometry(const BodyNodePtr& bn){
     // Create a BoxShape to be used for both visualization and collision checking
     std::shared_ptr<BoxShape> box(new BoxShape(
@@ -64,7 +40,7 @@ void setLinkGeometry(const BodyNodePtr& bn){
 
     // Create a shape node for visualization and collision checking
     auto shapeNode  
-      = bn->createShapeNodeWith<VisualAspect, CollisionAspect, DynamicsAspect>(box);
+      = bn->createShapeNodeWith<VisualAspect, DynamicsAspect>(box);
           shapeNode->getVisualAspect()->setColor(dart::Color::Blue());
     
     // Set the location of the shape node
@@ -76,7 +52,6 @@ void setLinkGeometry(const BodyNodePtr& bn){
     // Move the center of mass to the center of the object
     bn->setLocalCOM(center);
 }
-
 
 BodyNode* makeRootLink(const SkeletonPtr& pendulum, const std::string& name){
     RevoluteJoint::Properties properties;
@@ -90,18 +65,26 @@ BodyNode* makeRootLink(const SkeletonPtr& pendulum, const std::string& name){
         nullptr, properties, BodyNode::AspectProperties(name)).second;
 
     // Make a shape for the Joint
-    const double& R = link_width;
-    std::shared_ptr<EllipsoidShape> ball(
-        new EllipsoidShape(sqrt(2) * Eigen::Vector3d(R, R, R)));
-    auto shapeNode = bn->createShapeNodeWith<VisualAspect>(ball);
+    const double R = link_width;
+    const double h = link_width * 2.0;
+    std::shared_ptr<CylinderShape> cyl(new CylinderShape(R, h));
+
+    // Line up the cylinder with the Joint axis
+    Eigen::Isometry3d tf(Eigen::Isometry3d::Identity());
+    tf.linear() = dart::math::eulerXYZToMatrix(
+        Eigen::Vector3d(90.0 * M_PI / 180.0, 0, 0));
+
+    auto shapeNode = bn->createShapeNodeWith<VisualAspect>(cyl);
     shapeNode->getVisualAspect()->setColor(dart::Color::Blue());
+    shapeNode->setRelativeTransform(tf);
 
     // Set the geometry of the Body
     setLinkGeometry(bn);
 
+    std::cout << "added link of mass " << bn->getMass() << " kg" << std::endl;
+    
     return bn;
 } 
-
 
 BodyNode* addLink(const SkeletonPtr& pendulum, BodyNode* parent,
                   const std::string& name, Eigen::Vector3d translation){
@@ -120,7 +103,7 @@ BodyNode* addLink(const SkeletonPtr& pendulum, BodyNode* parent,
 
     // Make a shape for the Joint
     const double R = link_width / 2.0;
-    const double h = link_width;
+    const double h = link_width * 2.0;
     std::shared_ptr<CylinderShape> cyl(new CylinderShape(R, h));
 
     // Line up the cylinder with the Joint axis
@@ -135,6 +118,8 @@ BodyNode* addLink(const SkeletonPtr& pendulum, BodyNode* parent,
     // Set the geometry of the Body
     setLinkGeometry(bn);
 
+    std::cout << "added link of mass " << bn->getMass() << " kg" << std::endl;
+
     return bn;
 }
 
@@ -143,13 +128,14 @@ BodyNode* addLink(const SkeletonPtr& pendulum, BodyNode* parent,
 // "rotor" here represents the simulated motor rotor of an actuator consisting of an electric motor and a gearbox of ratio
 // the effects of reflected inertia due to the rotor significanty impact system dynamics so it is important to model
 // rotor is 
-BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent,
+BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent, BodyNode* output,
 		const std::string& name, Eigen::Vector3d translation){
     // Set up the properties for the Joint
     RevoluteJoint::Properties properties;
     properties.mName = name + "_joint";
     properties.mAxis = Eigen::Vector3d::UnitY();
-    properties.mT_ParentBodyToJoint.translation() = Eigen::Vector3d(0.0, link_width, 0.0);
+    //properties.mT_ParentBodyToJoint.translation() = Eigen::Vector3d(0.0, link_width, 0.0);
+    properties.mT_ParentBodyToJoint = output->getTransform(parent, output);
     properties.mRestPositions[0] = 0.0;
     properties.mSpringStiffnesses[0] = 0.0;
     properties.mDampingCoefficients[0] = default_damping;
@@ -157,6 +143,8 @@ BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent,
     // Create a new BodyNode, attached to its parent by a RevoluteJoint
     BodyNodePtr rotor = pendulum->createJointAndBodyNodePair<RevoluteJoint>(
         parent, properties, BodyNode::AspectProperties(name)).second;
+
+    rotor->setMass(0.1);
 
     // Make a shape for the Joint
     const double R = 4.0* link_width / 2.0;
@@ -168,15 +156,16 @@ BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent,
     tf.linear() = dart::math::eulerXYZToMatrix(
         Eigen::Vector3d(90.0 * M_PI / 180.0, 0, 0));
 
-    auto shapeNode = rotor->createShapeNodeWith<VisualAspect>(cyl);
-    shapeNode->getVisualAspect()->setColor(dart::Color::Blue());
+    auto shapeNode = rotor->createShapeNodeWith<VisualAspect, DynamicsAspect>(cyl);
+    shapeNode->getVisualAspect()->setColor(dart::Color::Red());
     shapeNode->setRelativeTransform(tf);
-
-    setRotorGeometry(rotor);
+    rotor->setLocalCOM(Eigen::Vector3d(0, 0, 0));
 
     const double ratio = 2.0;
     rotor->getParentJoint()->setActuatorType(Joint::MIMIC);
-    rotor->getParentJoint()->setMimicJoint(parent->getParentJoint(), ratio, 0.0);
+    rotor->getParentJoint()->setMimicJoint(output->getParentJoint(), ratio, 0.0);
+
+    std::cout << "added rotor of mass " << rotor->getMass() << " kg" << std::endl;
 
     return rotor;
 }
@@ -193,10 +182,10 @@ int main(int argc, char* argv[]){
   // Add each body to the last BodyNode in the pendulum
   BodyNode* link1 = makeRootLink(pendulum, "link1");
   BodyNode* link2 = addLink(pendulum, link1, "link2", Eigen::Vector3d(0, 0, link_length));
-  BodyNode* rotor = addRotor(pendulum, link2, "rotor", Eigen::Vector3d(0.0, 0.0, 0.0));
+                    addRotor(pendulum, link1, link2, "rotor", Eigen::Vector3d(0.0, 0.0, 0.0));
 
   // Set the initial position of the first DegreeOfFreedom so that the pendulum starts to swing right away
-  pendulum->getDof(0)->setPosition(120.0 * M_PI / 180.0);
+  pendulum->getDof(0)->setPosition(160.0 * M_PI / 180.0);
 
   // Create a world and add the pendulum to the world
   world->addSkeleton(pendulum);
@@ -212,6 +201,7 @@ int main(int argc, char* argv[]){
   // Initialize glut, initialize the window, and begin the glut event loop
   glutInit(&argc, argv);
   window.initWindow(1280, 960, "Multi-Pendulum Tutorial");
+  std::cout << "all setup, here goes..." << std::endl;
   glutMainLoop();
 }
 
