@@ -161,7 +161,7 @@ BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent, BodyNode* outp
     shapeNode->setRelativeTransform(tf);
     rotor->setLocalCOM(Eigen::Vector3d(0, 0, 0));
 
-    const double ratio = 2.0;
+    const double ratio = 4.0;
     rotor->getParentJoint()->setActuatorType(Joint::MIMIC);
     rotor->getParentJoint()->setMimicJoint(output->getParentJoint(), ratio, 0.0);
 
@@ -191,9 +191,9 @@ int main(int argc, char* argv[]){
   world->addSkeleton(pendulum);
 
   // Change the solver type to try to do better for the gearbox?
-  // auto lcpSolver = std::make_shared<dart::constraint::PgsBoxedLcpSolver>();
-  // auto solver = std::make_unique<dart::constraint::BoxedLcpConstraintSolver>(lcpSolver);
-  // world->setConstraintSolver(std::move(solver));
+  auto lcpSolver = std::make_shared<dart::constraint::PgsBoxedLcpSolver>();
+  auto solver = std::make_unique<dart::constraint::BoxedLcpConstraintSolver>(lcpSolver);
+  world->setConstraintSolver(std::move(solver));
 
   // Create a window for rendering the world and handling user input
   MyWindow window(world);
