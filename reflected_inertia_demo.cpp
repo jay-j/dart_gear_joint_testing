@@ -155,7 +155,7 @@ BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent,
     properties.mDampingCoefficients[0] = default_damping;
 
     // Create a new BodyNode, attached to its parent by a RevoluteJoint
-    BodyNodePtr bn = pendulum->createJointAndBodyNodePair<RevoluteJoint>(
+    BodyNodePtr rotor = pendulum->createJointAndBodyNodePair<RevoluteJoint>(
         parent, properties, BodyNode::AspectProperties(name)).second;
 
     // Make a shape for the Joint
@@ -168,27 +168,32 @@ BodyNode* addRotor(const SkeletonPtr& pendulum, BodyNode* parent,
     tf.linear() = dart::math::eulerXYZToMatrix(
         Eigen::Vector3d(90.0 * M_PI / 180.0, 0, 0));
 
-    auto shapeNode = bn->createShapeNodeWith<VisualAspect>(cyl);
+    auto shapeNode = rotor->createShapeNodeWith<VisualAspect>(cyl);
     shapeNode->getVisualAspect()->setColor(dart::Color::Blue());
     shapeNode->setRelativeTransform(tf);
 
-    setRotorGeometry(bn);
+    setRotorGeometry(rotor);
 
-    return bn;
+    const double ratio = 2.0;
+    rotor->getParentJoint()->setActuatorType(Joint::MIMIC);
+    rotor->getParentJoint()->setMimicJoint(parent->getParentJoint(), ratio, 0.0);
+
+    return rotor;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char* argv[]){
+  std::cout << "starting main!" << std::endl;
   WorldPtr world = World::create();
 
   // Create an empty Skeleton with the name "pendulum"
   SkeletonPtr pendulum = Skeleton::create("pendulum");
 
   // Add each body to the last BodyNode in the pendulum
-  BodyNode* bn = makeRootLink(pendulum, "body1");
-  bn = addLink(pendulum, bn, "body2", Eigen::Vector3d(0, 0, link_length));
-  BodyNode* rotor = addRotor(pendulum, bn, "rotor", Eigen::Vector3d(0.0, 0.0, 0.0));
+  BodyNode* link1 = makeRootLink(pendulum, "link1");
+  BodyNode* link2 = addLink(pendulum, link1, "link2", Eigen::Vector3d(0, 0, link_length));
+  BodyNode* rotor = addRotor(pendulum, link2, "rotor", Eigen::Vector3d(0.0, 0.0, 0.0));
 
   // Set the initial position of the first DegreeOfFreedom so that the pendulum starts to swing right away
   pendulum->getDof(0)->setPosition(120.0 * M_PI / 180.0);
@@ -197,9 +202,9 @@ int main(int argc, char* argv[]){
   world->addSkeleton(pendulum);
 
   // Change the solver type to try to do better for the gearbox?
-  auto lcpSolver = std::make_shared<dart::constraint::PgsBoxedLcpSolver>();
-  auto solver = std::make_unique<dart::constraint::BoxedLcpConstraintSolver>(lcpSolver);
-  world->setConstraintSolver(std::move(solver));
+  // auto lcpSolver = std::make_shared<dart::constraint::PgsBoxedLcpSolver>();
+  // auto solver = std::make_unique<dart::constraint::BoxedLcpConstraintSolver>(lcpSolver);
+  // world->setConstraintSolver(std::move(solver));
 
   // Create a window for rendering the world and handling user input
   MyWindow window(world);
